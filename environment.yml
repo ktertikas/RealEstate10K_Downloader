@@ -1,0 +1,8 @@
+name: realestate_download
+dependencies:
+  - python=3.11
+  - ffmpeg
+  - pip
+  - pip:
+    - scikit-image
+    - yt-dlp
