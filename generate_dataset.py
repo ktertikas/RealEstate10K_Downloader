@@ -1,10 +1,10 @@
-from pathlib import Path
 import argparse
 import glob
 import os
 import shutil
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pool
+from pathlib import Path
 from threading import Lock
 
 import yt_dlp
@@ -22,7 +22,7 @@ def download_and_process(data, vid, num_videos, mode, output_root):
         ydl_opts = {
             "format": "bestvideo[height<=480]",
             "outtmpl": f"./{videoname}",
-            "cookiefile": "./cookies.txt",
+            "cookiefile": "./cookies-yt.txt",
         }
 
         # Initialize yt_dlp and download the video
@@ -62,12 +62,11 @@ class Data:
 
 def process(data, seq_id, videoname, output_root):
     seqname = data.list_seqnames[seq_id]
-    if not os.path.exists(output_root + "/" + seqname):
-        os.makedirs(output_root + "/" + seqname)
-    else:
-        print(f"[WARNING] The output dir {output_root + '/' + seqname} has already existed.")
-        return False
+    output_dir = f"{output_root}/{seqname}"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
+    # Create
     list_str_timestamps = []
     for timestamp in data.list_list_timestamps[seq_id]:
         timestamp = int(timestamp / 1000)
@@ -78,40 +77,46 @@ def process(data, seq_id, videoname, output_root):
         _str_timestamp = str_hour + ":" + str_min + ":" + str_sec + "." + str_mill
         list_str_timestamps.append(_str_timestamp)
 
-    # extract frames from a video
-    for idx, str_timestamp in enumerate(list_str_timestamps):
-        command = (
-            "ffmpeg -loglevel error -ss "
-            + str_timestamp
-            + " -i "
-            + videoname
-            + " -vframes 1 -f image2 "
-            + output_root
-            + "/"
-            + seqname
-            + "/"
-            + str(data.list_list_timestamps[seq_id][idx])
-            + ".png"
+    if len(list_str_timestamps) == len(glob.glob(output_dir + "/*.png")):
+        print(
+            f"[WARNING] The output dir {output_dir} has already existed with the same number of frames, skipping..."
         )
-        try:
-            os.system(command)
-        except Exception as err:
-            print(f"[ERROR] Failed to process {data.url}: {err}")
-            shutil.rmtree(output_root + "/" + seqname)  # delete the output dir
-            return True
+        return False
 
-    png_list = glob.glob(output_root + "/" + seqname + "/*.png")
+    command_parts = ["ffmpeg -loglevel error"]
+    for idx, (str_timestamp, timestamp) in enumerate(
+        zip(list_str_timestamps, data.list_list_timestamps[seq_id])
+    ):
+        command_parts.extend(
+            [
+                f"-ss {str_timestamp}",
+                f"-i {videoname}",
+                f"-vframes 1",
+                f"-f image2",
+                f"-map {idx}:v:0",
+                f"{output_dir}/{timestamp}.png",
+            ]
+        )
+    command = " ".join(command_parts)
+    try:
+        os.system(command)
+    except Exception as err:
+        print(f"[ERROR] Failed to process {data.url}: {err}")
+        shutil.rmtree(output_dir)
+        return True
+
+    png_list = glob.glob(output_dir + "/*.png")
 
     for pngname in png_list:
         image = io.imread(pngname)
-        if int(image.shape[1] / 2) < 500:
-            break
-        image = resize(
-            image,
-            (int(image.shape[0] / 2), int(image.shape[1] / 2)),
-            anti_aliasing=True,
-        )
-        image = (image * 255).astype("uint8")
+        if int(image.shape[1] / 2) >= 500:
+            image = resize(
+                image,
+                (int(image.shape[0] / 2), int(image.shape[1] / 2)),
+                anti_aliasing=True,
+            )
+            image = (image * 255).astype("uint8")
+            io.imsave(pngname, image)
     return False
 
 
@@ -199,8 +204,18 @@ class DataDownloader:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", type=str, default="test", help="test or train")
-    parser.add_argument("--dataroot", type=str, default="./RealEstate10K", help="path to the dataset file location")
-    parser.add_argument("--output_root", type=str, default="./dataset", help="path to the output directory")
+    parser.add_argument(
+        "--dataroot",
+        type=str,
+        default="./RealEstate10K",
+        help="path to the dataset file location",
+    )
+    parser.add_argument(
+        "--output_root",
+        type=str,
+        default="./dataset",
+        help="path to the output directory",
+    )
     args = parser.parse_args()
     mode = args.mode
 
