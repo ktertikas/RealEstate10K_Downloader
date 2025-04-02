@@ -2,8 +2,7 @@ import argparse
 import glob
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
 
@@ -14,7 +13,7 @@ from skimage.transform import resize
 failure_log_lock = Lock()
 
 
-def download_and_process(data, vid, num_videos, mode, output_root):
+def download_and_process(data, vid, num_videos, mode, output_root, process_pool):
     videoname = data.url.split("=")[-1]
     print(f"[INFO] Downloading {vid + 1}/{num_videos}: {videoname} ...")
     try:
@@ -35,12 +34,17 @@ def download_and_process(data, vid, num_videos, mode, output_root):
             failure_log.close()
         return
 
-    with Pool(processes=16) as pool:
-        pool.map(
-            wrap_process,
-            [(data, seq_id, videoname, output_root) for seq_id in range(len(data))],
+    # Submit to process pool
+    futures = []
+    for seq_id in range(len(data)):
+        futures.append(
+            process_pool.submit(process, data, seq_id, videoname, output_root)
         )
-    os.system("rm " + videoname)  # remove videos
+
+    for future in futures:
+        future.result()
+
+    os.remove(videoname)
 
 
 class Data:
@@ -120,10 +124,6 @@ def process(data, seq_id, videoname, output_root):
     return False
 
 
-def wrap_process(list_args):
-    return process(*list_args)
-
-
 class DataDownloader:
     def __init__(self, dataroot, output_root, mode="test"):
         print("[INFO] Loading data list ... ", end="")
@@ -169,20 +169,22 @@ class DataDownloader:
     def run(self):
         num_videos = len(self.list_data)
         print(f"[INFO] Start downloading {num_videos} movies")
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [
-                executor.submit(
-                    download_and_process,
-                    data,
-                    vid,
-                    num_videos,
-                    self.mode,
-                    self.output_root,
-                )
-                for vid, data in enumerate(self.list_data)
-            ]
-            for future in futures:
-                future.result()
+        with ProcessPoolExecutor(max_workers=16) as process_pool:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [
+                    executor.submit(
+                        download_and_process,
+                        data,
+                        vid,
+                        num_videos,
+                        self.mode,
+                        self.output_root,
+                        process_pool,
+                    )
+                    for vid, data in enumerate(self.list_data)
+                ]
+                for future in futures:
+                    future.result()
         print("[INFO] Done!")
 
     def show(self):
