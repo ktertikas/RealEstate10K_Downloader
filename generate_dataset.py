@@ -13,32 +13,40 @@ from skimage.transform import resize
 failure_log_lock = Lock()
 
 
-def download_and_process(data, vid, num_videos, mode, output_root, process_pool):
+def download_and_process(
+    data, vid, num_videos, mode, output_root, process_pool, videos_dir
+):
     videoname = data.url.split("=")[-1]
+    video_path = os.path.join(videos_dir, f"{videoname}.mp4")
     print(f"[INFO] Downloading {vid + 1}/{num_videos}: {videoname} ...")
-    try:
-        # pytube is unstable, use yt_dlp instead
-        ydl_opts = {
-            "format": "bestvideo[height<=480]",
-            "outtmpl": f"./{videoname}",
-            "cookiefile": "./cookies-yt.txt",
-        }
+    if not os.path.exists(video_path):
+        try:
+            # pytube is unstable, use yt_dlp instead
+            ydl_opts = {
+                "format": "bestvideo[height<=480]",
+                "outtmpl": video_path,
+                "cookiefile": "./cookies-yt.txt",
+            }
 
-        # Initialize yt_dlp and download the video
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([data.url])
-    except Exception:
-        with failure_log_lock:
-            failure_log = open("failed_videos_" + mode + ".txt", "a")
-            failure_log.writelines(data.url + "\n")
-            failure_log.close()
-        return
+            # Initialize yt_dlp and download the video
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([data.url])
+        except Exception:
+            with failure_log_lock:
+                failure_log = open("failed_videos_" + mode + ".txt", "a")
+                failure_log.writelines(data.url + "\n")
+                failure_log.close()
+            return
+    else:
+        print(
+            f"[INFO] Video {vid + 1}/{num_videos}: {videoname} already exists in {videos_dir}, skipping..."
+        )
 
     # Submit to process pool
     futures = []
     for seq_id in range(len(data)):
         futures.append(
-            process_pool.submit(process, data, seq_id, videoname, output_root)
+            process_pool.submit(process, data, seq_id, video_path, output_root)
         )
 
     for future in futures:
@@ -64,7 +72,7 @@ class Data:
         return len(self.list_seqnames)
 
 
-def process(data, seq_id, videoname, output_root):
+def process(data, seq_id, video_path, output_root):
     seqname = data.list_seqnames[seq_id]
     output_dir = f"{output_root}/{seqname}"
     if not os.path.exists(output_dir):
@@ -94,7 +102,7 @@ def process(data, seq_id, videoname, output_root):
         command_parts.extend(
             [
                 f"-ss {str_timestamp}",
-                f"-i {videoname}",
+                f"-i {video_path}",
                 f"-vframes 1",
                 f"-f image2",
                 f"-map {idx}:v:0",
@@ -125,14 +133,16 @@ def process(data, seq_id, videoname, output_root):
 
 
 class DataDownloader:
-    def __init__(self, dataroot, output_root, mode="test"):
+    def __init__(self, dataroot, output_root, videos_dir, mode="test"):
         print("[INFO] Loading data list ... ", end="")
         self.dataroot = dataroot
         self.output_root = output_root
+        self.videos_dir = videos_dir
         self.list_seqnames = sorted(glob.glob(dataroot + "/*.txt"))
         self.mode = mode
 
         os.makedirs(self.output_root, exist_ok=True)
+        os.makedirs(self.videos_dir, exist_ok=True)
 
         self.list_data = []
         for txt_file in self.list_seqnames:
@@ -180,6 +190,7 @@ class DataDownloader:
                         self.mode,
                         self.output_root,
                         process_pool,
+                        self.videos_dir,
                     )
                     for vid, data in enumerate(self.list_data)
                 ]
@@ -223,8 +234,9 @@ if __name__ == "__main__":
 
     dataroot = Path(args.dataroot) / mode
     output_root = Path(args.output_root) / mode
+    videos_dir = Path(args.videos_dir)
 
-    downloader = DataDownloader(str(dataroot), str(output_root), mode)
+    downloader = DataDownloader(str(dataroot), str(output_root), str(videos_dir), mode)
 
     downloader.show()
     downloader.run()
