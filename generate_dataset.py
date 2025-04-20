@@ -229,6 +229,12 @@ if __name__ == "__main__":
         default="./dataset",
         help="path to the output directory",
     )
+    parser.add_argument(
+        "--videos_dir",
+        type=str,
+        default="./videos",
+        help="path to the videos directory",
+    )
     args = parser.parse_args()
     mode = args.mode
 
