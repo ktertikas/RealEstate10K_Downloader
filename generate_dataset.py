@@ -96,7 +96,7 @@ def process(data, seq_id, video_path, output_root):
         )
         return False
 
-    command_parts = ["ffmpeg -loglevel error"]
+    command_parts = ["ffmpeg -loglevel error -y"] # force overwriting of existing files when running the process function
     for idx, (str_timestamp, timestamp) in enumerate(
         zip(list_str_timestamps, data.list_list_timestamps[seq_id])
     ):
