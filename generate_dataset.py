@@ -9,6 +9,7 @@ from threading import Lock
 import yt_dlp
 from skimage import io
 from skimage.transform import resize
+from tqdm import tqdm
 
 failure_log_lock = Lock()
 
@@ -145,22 +146,21 @@ class DataDownloader:
         os.makedirs(self.videos_dir, exist_ok=True)
 
         self.list_data = []
-        for txt_file in self.list_seqnames:
+        for txt_file in tqdm(self.list_seqnames):
             dir_name = txt_file.split("/")[-1]
             seq_name = dir_name.split(".")[0]
 
             # extract info from txt
-            seq_file = open(txt_file, "r")
-            lines = seq_file.readlines()
-            youtube_url = ""
-            list_timestamps = []
-            for idx, line in enumerate(lines):
-                if idx == 0:
-                    youtube_url = line.strip()
-                else:
-                    timestamp = int(line.split(" ")[0])
-                    list_timestamps.append(timestamp)
-            seq_file.close()
+            with open(txt_file, "r") as seq_file:
+                lines = seq_file.readlines()
+                youtube_url = ""
+                list_timestamps = []
+                for idx, line in enumerate(lines):
+                    if idx == 0:
+                        youtube_url = line.strip()
+                    else:
+                        timestamp = int(line.split(" ")[0])
+                        list_timestamps.append(timestamp)
 
             isRegistered = False
             for i in range(len(self.list_data)):
