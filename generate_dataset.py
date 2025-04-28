@@ -25,6 +25,7 @@ def download_and_process(
             # pytube is unstable, use yt_dlp instead
             ydl_opts = {
                 "format": "bestvideo[height<=480]",
+                "check_formats": True,
                 "outtmpl": video_path,
                 "cookiefile": "./cookies-yt.txt",
             }
